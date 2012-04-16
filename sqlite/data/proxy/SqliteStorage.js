@@ -26,110 +26,17 @@ Ext.define('Sqlite.data.proxy.SqliteStorage', {
 	    me.createTable();
     },
     
-    // overwriting method on base proxy so we can use the full rewrite
-    batch: function(options, /* deprecated */listeners) {
-      
-        var me = this,
-            useBatch = me.getBatchActions(),
-            model = this.getModel(),
-            batch,
-            records;
-
-        if (options.operations === undefined) {
-            // the old-style (operations, listeners) signature was called
-            // so convert to the single options argument syntax
-            options = {
-                operations: options,
-                batch: {
-                    listeners: listeners
-                }
-            };
-
-            // <debug warn>
-            Ext.Logger.deprecate('Passes old-style signature to Proxy.batch (operations, listeners). Please convert to single options argument syntax.');
-            // </debug>
-        }
-
-        if (options.batch) {
-             if (options.batch.isBatch) {
-                 options.batch.setProxy(me);
-             } else {
-                 options.batch.proxy = me;
-             }
-        } else {
-             options.batch = {
-                 proxy: me,
-                 listeners: options.listeners || {}
-             };
-        }
-
-        if (!batch) {
-            batch = new Ext.data.Batch(options.batch);
-        }
-        
-
-        batch.on('complete', Ext.bind(me.onBatchComplete, me, [options], 0));
-        
-        Ext.each(me.getBatchOrder().split(','), function(action) {
-             records = options.operations[action];
-             
-             if (records) {
-                 if (useBatch) {
-                     batch.add(new Ext.data.Operation({
-                         action: action,
-                         records: records,
-                         model: model,
-                         fullRewrite: Ext.isDefined(options.fullRewrite) ? options.fullRewrite : false
-                     }));
-                 } else {
-                     Ext.each(records, function(record) {
-                         batch.add(new Ext.data.Operation({
-                             action : action,
-                             records: [record],
-                             model: model
-                         }));
-                     });
-                 }
-             }
-        }, me);
-
-        batch.start();
-        return batch;
-    },
     
-    operationRecordCompleted: function(operation, record, success, err) {
-      var me = this;
-      
-      // this record failed, so set exception
-      if(!success) {
-        operation.setException(err ? err : '');
-      }
-      
-      if(!Ext.isDefined(operation.completeRecordsCount))
-        operation.completeRecordsCount = 0;
-      
-      operation.completeRecordsCount++;
-        
-      if(operation.completeRecordsCount >= operation.getRecords().length) {
-        if(!operation.hasException())
-          operation.setSuccessful();
-        operation.setCompleted();
-        
-        if(typeof operation.callback == 'function') {
-          operation.callback.call(operation.scope || this, operation);
-        }
-      }
-    },
+    
+    /* INTERFACE FUNCTIONS */
     
     //inherit docs
     create: function(operation, callback, scope) {
       
       var me = this;
       var records = operation.getRecords(),
-      length = records.length,
-      id, record, i,
-      model = this.getModel(),
-      queries = [],
+      length = records.length, i,
+      queries = [];
       
       onSuccess = function() {
         operation.setCompleted();
@@ -157,8 +64,7 @@ Ext.define('Sqlite.data.proxy.SqliteStorage', {
       
       // add in each insert
       for (i = 0; i < length; i++) {
-        record = records[i];
-        queries.push(this.getInsertRecordFunction(record, me.config.dbConfig.tablename));
+        queries.push(this.getInsertRecordFunc(records[i], me.config.dbConfig.tablename));
       }
       
       // do transaction
@@ -168,22 +74,76 @@ Ext.define('Sqlite.data.proxy.SqliteStorage', {
     
     //inherit docs
     update: function(operation, callback, scope) {
+    
       var me = this;
       var records = operation.getRecords(),
-      length = records.length,
-      record,
-      id,
-      i,
-      tbl_Id = me.getModel().getIdProperty();
+      length = records.length, i,
+      queries = [];
       
+      onSuccess = function() {
+        operation.setCompleted();
+        operation.setSuccessful();
+        if(typeof callback == 'function') {
+          callback.call(scope, operation);
+        }
+      },
+      onError = function(tx, err) {
+        operation.setCompleted();
+        operation.setException(err ? err : '');
+        if(typeof callback == 'function') {
+          callback.call(scope, operation);
+        }
+      };
+	    
       operation.setStarted();
-      operation.callback = callback;
-      operation.scope = scope;
 
+      // add in each insert
       for (i = 0; i < length; i++) {
-        record = records[i];
-        this.updateRecord(record, me.config.dbConfig.tablename, operation);
+        queries.push(this.getUpdateRecordFunc(records[i], me.config.dbConfig.tablename));
       }
+      
+      // do transaction
+      me.transactionDB(me.getDb(), queries, onSuccess, onError);
+      
+    },
+    
+    //inherit docs
+    destroy: function(operation, callback, scope) {
+      var me = this;
+      var records = operation.getRecords(),
+      length = records.length, i,
+      queries = [];
+      
+      onSuccess = function() {
+        operation.setCompleted();
+        operation.setSuccessful();
+        if(typeof callback == 'function') {
+          callback.call(scope, operation);
+        }
+      },
+      onError = function(tx, err) {
+        operation.setCompleted();
+        operation.setException(err ? err : '');
+        if(typeof callback == 'function') {
+          callback.call(scope, operation);
+        }
+      };
+	    
+      operation.setStarted();
+      
+      for (i = 0; i < length; i++) {
+        queries.push(this.getDeleteRecordFunc(records[i], me.config.dbConfig.tablename));
+      }
+      
+      // do transaction
+      me.transactionDB(me.getDb(), queries, onSuccess, onError);
+    },
+    
+    truncate: function(tablename) {
+      var me = this;
+      var sql = 'DELETE FROM ' + me.config.dbConfig.tablename;  
+      me.queryDB(me.getDb(), sql, function(){}, function(){});
+      return true;
     },
     
     //inherit docs
@@ -222,34 +182,19 @@ Ext.define('Sqlite.data.proxy.SqliteStorage', {
       
     },
     
-    //inherit docs
-    destroy: function(operation, callback, scope) {
-      var me = this;
-      var records = operation.getRecords(),
-      length = records.length,
-      i;
-      
-      operation.callback = callback;
-      operation.scope = scope;
-      
-      for (i = 0; i < length; i++) {
-        this.removeRecord(records[i], me.config.dbConfig.tablename,
-        operation);
-      }
-    },
     
-    /**
-     *@private
-     * Get Database instance
-     */
+    
+    /* GENERAL DB FUNCTIONS */
+    
     getDb : function() {
 	    return this.config.dbConfig.dbConn.dbConn;
     },
     
-    /**
-     *@private
-     *Creates table if not exists
-     */
+    throwDbError: function(tx, err) {
+      var me = this;
+      console.log(this.type + "----" + err.message);
+    },
+    
     createTable : function() {
       var me = this;
 	    me.getDb().transaction(function(tx) {
@@ -272,12 +217,6 @@ Ext.define('Sqlite.data.proxy.SqliteStorage', {
       });
     },
     
-    /**
-     * @private
-     * gets an array of fields, used for table creation and
-     * record creation/insertion
-     * @return {Array} each index is object of name, type, option
-     */
     getDbFields: function() {
       var me = this,
       m = me.getModel(),
@@ -312,12 +251,6 @@ Ext.define('Sqlite.data.proxy.SqliteStorage', {
       return retFields;
     },
     
-     /**
-     * @private
-     * Get reader data and set up fields accordingly
-     * Used for table creation only
-     * @return {String} fields separated by a comma
-     */
     constructFields: function() {
       var me = this,
       fields = me.getDbFields(),
@@ -330,11 +263,6 @@ Ext.define('Sqlite.data.proxy.SqliteStorage', {
       return flatFields.join(',');
     },
     
-    /**
-     * function to return an object of a record to insert/update to db.
-     * will not return the id property of the model, or any fields that have
-     * property "isTableField" set to false on their config
-     */
     getRecordDbObject: function(record) {
       var me = this,
       fields = me.getDbFields(),
@@ -357,15 +285,6 @@ Ext.define('Sqlite.data.proxy.SqliteStorage', {
       return recObj;
     },
     
-    /**
-     * execute sql statements
-     * @param {Object} dbConn Database connection Value
-     * @param {String} sql Sql Statement
-     * @param {Function} successcallback  success callback for sql execution
-     * @param {Function} errorcallback  error callback for sql execution
-     * @param {Array}  params  sql statement parameters
-     * @param {Function} callback  additional callback
-     */
     queryDB: function(dbConn, sql, successcallback, errorcallback, params,
     callback) {
       
@@ -397,6 +316,10 @@ Ext.define('Sqlite.data.proxy.SqliteStorage', {
       }, errorcallback, successcallback);
       
     },
+    
+    
+    
+    /* HELPERS FOR READING */
     
     whereClause: function(filters) {
       var me = this,
@@ -489,13 +412,6 @@ Ext.define('Sqlite.data.proxy.SqliteStorage', {
       return sql;
     },
     
-     /**
-     * @private
-     * Created array of objects, each representing field=>value pair.
-     * @param {Object} tx Transaction
-     * @param {Object} rs Response
-     * @return {Array} Returns parsed data
-     */
     parseData: function(tx, rs) {
 	
       var rows = rs.rows,
@@ -560,65 +476,14 @@ Ext.define('Sqlite.data.proxy.SqliteStorage', {
       me.applyData(storedatas, operation, callback, scope);
     },
     
-    /**
-     * Output Query Error
-     * @param {Object} tx Transaction
-     * @param {Object} rs Response
-     */
-    throwDbError: function(tx, err) {
-      var me = this;
-      console.log(this.type + "----" + err.message);
-    },
     
-    /**
-     * Saves the given record in the Proxy.
-     * @param {Ext.data.Model} record The model instance
-     */
-    setRecord: function(record, tablename, operation) {
-    	var me = this;
-    	
-      var rawData = me.getRecordDbObject(record),
-      fields = [],
-      values = [],
-      placeholders = [],
-
-      onSuccess = function(tx, rs) {
-        var insertId = rs.insertId;
-        
-        if (record.phantom) {
-          record.phantom = false;
-        }
-        
-        // set the id
-		    record.setId(insertId);
-        
-        me.operationRecordCompleted(operation, record, true);
-      },
-
-      onError = function(tx, err) {
-        me.throwDbError(tx, err);
-        me.operationRecordCompleted(operation, record, false, err);
-      };
-      
-      //extract data to be inserted
-      for (var i in rawData) {
-        fields.push(i);
-        values.push(rawData[i]);
-        placeholders.push('?');
-      }
-      
-      var sql = 'INSERT INTO ' + tablename + '(' + fields.join(',') +
-        ') VALUES (' + placeholders.join(',') + ')';
-      
-      me.queryDB(me.getDb(), sql, onSuccess, onError, values);
-
-      return true;
-    },
     
-    getInsertRecordFunction: function(record, tablename) {
-      var me = this;
-      
-      var rawData = me.getRecordDbObject(record),
+    /* FUNCTIONS THAT RETURN FUNCTIONS TO BE CALLED IN TRANSACTIONS */
+    
+    getInsertRecordFunc: function(record, tablename) {
+    
+      var me = this,
+      rawData = me.getRecordDbObject(record),
       fields = [],
       values = [],
       placeholders = [],
@@ -653,29 +518,23 @@ Ext.define('Sqlite.data.proxy.SqliteStorage', {
       };
     },
     
-    /**
-     * Updates the given record.
-     * @param {Ext.data.Model} record The model instance
-     */
-    updateRecord: function(record, tablename, operation) {
+    getUpdateRecordFunc: function(record, tablename) {
+      
       var me = this,
       id = record.getId(),
-      modifiedData = record.modified,
       newData = me.getRecordDbObject(record),
       pairs = [],
       values = [],
       
       onSuccess = function(tx, rs) {
         //add new record if id doesn't exist
-        if (rs.rowsAffected == 0)
-          me.setRecord(record, tablename, operation);
-        else
-          me.operationRecordCompleted(operation, record, true);
+        if (rs.rowsAffected == 0) {
+          me.getInsertRecordFunc(record, tablename)();
+        }
       },
       
       onError = function(tx, err) {
         me.throwDbError(tx, err);
-        me.operationRecordCompleted(operation, record, false, err);
       };
 
       for (var i in newData) {
@@ -687,44 +546,30 @@ Ext.define('Sqlite.data.proxy.SqliteStorage', {
       
       var sql = 'UPDATE ' + tablename + ' SET ' + pairs.join(',') +
         ' WHERE _ROWID_ = ?';
-        
-      me.queryDB(me.getDb(), sql, onSuccess, onError, values);
       
-      return true;
+      return function(tx) {
+        tx.executeSql(sql, values, onSuccess, onError);
+      };
+      
     },
     
-    /**
-     * @private
-     * Physically removes a given record from the object store. 
-     * @param {Mixed} id The id of the record to remove
-     */
-    removeRecord: function(record, tablename, operation) {
+    getDeleteRecordFunc: function(record, tablename) {
+      
       var me = this,
       values = [],
       
-      onSuccess = function(tx, rs) {
-        me.operationRecordCompleted(operation, record, true);
-      },
+      onSuccess = function(tx, rs) {},
       
       onError = function(tx, err) {
         me.throwDbError(tx, err);
-        me.operationRecordCompleted(operation, record, false, err);
       };
       
       var sql = 'DELETE FROM ' + tablename + ' WHERE _ROWID_ = ?';
       values.push(record.getId());
-      me.queryDB(me.getDb(), sql, onSuccess, onError, values);
-      return true;
-    },
-    
-    /**
-     * Destroys all records stored in the proxy 
-     */
-    truncate: function(tablename) {
-      var me = this;
-      var sql = 'DELETE FROM ' + me.config.dbConfig.tablename;  
-      me.queryDB(me.getDb(), sql, function(){}, function(){});
-      return true;
+      
+      return function(tx) {
+        tx.executeSql(sql, values, onSuccess, onError);
+      };
     }
 });
 
