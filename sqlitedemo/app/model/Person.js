@@ -20,7 +20,7 @@ Ext.define('SqliteDemo.model.Person', {
       type: 'sqlitestorage',
       dbConfig: {
         tablename: 'people',
-        dbConn: Ext.DbConnection
+        dbConn: SqliteDemo.util.InitSQLite.getConnection()
       }
     }
   }

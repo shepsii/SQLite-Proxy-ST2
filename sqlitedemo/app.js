@@ -1,8 +1,9 @@
+
 //<debug>
 Ext.Loader.setPath({
     'Ext': 'sdk/src',
     'SqliteDemo': 'app',
-    'Sqlite': 'sqlite'
+    'Sqlite': '../sqlite'
 });
 //</debug>
 

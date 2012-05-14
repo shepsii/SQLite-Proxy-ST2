@@ -1,3 +1,12 @@
+* 2012/05/14 SENCHA COMMAND COMPATIBILITY *
+
+An issue with the demo app not working when it's been built into production or testing (ie, into a single js file) has been sorted.
+
+It's a fix that works; for some reason when Sencha is in a single file the models will be initiated and their proxies created BEFORE the onReady method of the Ext.Application call is executed. In a pre-build, multi-file development environment, the model calls are after.
+
+NB: I have also changed the Ext.Loader.SetPath call in the app.js of the demo so the source code for the sqliteproxy is only included once in the root of the repository (rather than twice - ie, it's no longer copied in the demo directory).
+
+
 * 2012/05/04 SCHEMA MODIFICATION *
 
 A quick note on page sizes - because this proxy does do "remote filtering", ie, altering the query to the database if remoteFilter is set to true, it also takes notice of the pageSize config (which I believe defaults to 24). So if you do not want to use pageSize, set it to some arbitrary large number that will be larger than the number of records of the relevant model.
