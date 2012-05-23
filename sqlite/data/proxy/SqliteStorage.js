@@ -12,7 +12,6 @@
 Ext.define('Sqlite.data.proxy.SqliteStorage', {
     extend: 'Ext.data.proxy.Client',
     alias: 'proxy.sqlitestorage',
-
     config: {
       reader: null,
       writer: null,
@@ -479,9 +478,6 @@ Ext.define('Sqlite.data.proxy.SqliteStorage', {
     
     applyData: function(data, operation, callback, scope) {
 	    var me = this;
-	    
-      operation.setSuccessful();
-      operation.setCompleted();
       
       operation.setResultSet(Ext.create('Ext.data.ResultSet', {
         records: data,
@@ -491,6 +487,9 @@ Ext.define('Sqlite.data.proxy.SqliteStorage', {
         
       // finish with callback
 	    operation.setRecords(data);
+      
+      operation.setSuccessful();
+      operation.setCompleted();
       
       if (typeof callback == "function") {
         callback.call(scope || me, operation);
@@ -581,7 +580,7 @@ Ext.define('Sqlite.data.proxy.SqliteStorage', {
       onSuccess = function(tx, rs) {
         //add new record if id doesn't exist
         if (rs.rowsAffected == 0) {
-          me.getInsertRecordFunc(record, tablename)();
+          me.getInsertRecordFunc(record, tablename)(tx);
         }
       },
       
