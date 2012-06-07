@@ -270,6 +270,22 @@ Ext.define('Sqlite.data.proxy.SqliteStorage', {
 		}], Ext.emptyFn, Ext.emptyFn);
 	},
 
+    dropTable: function(tablename) {
+       var me = this;
+       
+       me.getDb().transaction(function(tx) {
+            
+        var onError = function(tx, err) {
+          me.throwDbError(tx, err);
+        };
+        
+        var onSuccess = function(tx, results) {
+        };
+        
+        var tablesql = 'DROP TABLE ' + me.getDbConfig().tablename;
+        tx.executeSql(tablesql,[],onSuccess,onError);
+       });
+    },
 
 	getDbFields: function () {
 		var me = this,
