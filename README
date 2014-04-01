@@ -1,3 +1,13 @@
+* 2014/04/01 UPDATE *
+
+A while back, Sencha included a Sql proxy with the touch framework.
+
+For the most part, it does a really good job but the support for array or object fields is not yet there.
+
+Please checkout my override at https://github.com/shepsii/SQL-Proxy-Override-ST2 for this support.
+
+Otherwise, please consider this repo deprecated!
+
 * 2012/05/14 SENCHA COMMAND COMPATIBILITY *
 
 An issue with the demo app not working when it's been built into production or testing (ie, into a single js file) has been sorted.
